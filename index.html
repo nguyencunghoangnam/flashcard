@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Flashcard App - Hoàng Nam</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" href="data:," />
+  <style>
+    body {
+      margin: 0;
+      background: #f6f7fb;
+    }
+    ::-webkit-scrollbar { width: 7px; background: #ececec; }
+    ::-webkit-scrollbar-thumb { background: #d6e0f0; border-radius: 6px; }
+    /* Tooltip */
+    [title] { position: relative; }
+    [title]:hover:after {
+      content: attr(title);
+      position: absolute;
+      left: 105%; top: 5%;
+      background: #232946; color: #fff;
+      font-size: 13px; padding: 3px 10px;
+      border-radius: 7px; white-space: nowrap;
+      box-shadow: 0 1px 8px #23294626;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <!-- React + Babel CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- App code -->
+  <script type="text/babel">
+
+// ========== Helper: CSV parse & export ==========
+function parseCSV(csv) {
+  const rows = csv.trim().split("\n");
+  const cards = [];
+  for (let row of rows) {
+    let [front, back] = row.split(",");
+    if (front && back) cards.push({ front: front.trim(), back: back.trim() });
+  }
+  return cards;
+}
+function toCSV(cards) {
+  return cards.map(c => `${c.front},${c.back}`).join("\n");
+}
+
+// ========== Sample Data ==========
+const SAMPLE_COLLECTIONS = [
+  {
+    id: "english",
+    name: "Tiếng Anh",
+    cards: [
+      { front: "apple", back: "quả táo" },
+      { front: "banana", back: "quả chuối" },
+      { front: "cat", back: "con mèo" },
+      { front: "dog", back: "con chó" },
+      { front: "car", back: "xe hơi" },
+      { front: "water", back: "nước" },
+      { front: "book", back: "quyển sách" },
+      { front: "school", back: "trường học" },
+      { front: "teacher", back: "giáo viên" },
+      { front: "student", back: "học sinh" },
+    ],
+    stats: {},
+  },
+];
+
+function saveToStorage(collections) {
+  localStorage.setItem("flashcard_collections", JSON.stringify(collections));
+}
+function loadFromStorage() {
+  try {
+    let c = localStorage.getItem("flashcard_collections");
+    if (!c) return SAMPLE_COLLECTIONS;
+    return JSON.parse(c);
+  } catch {
+    return SAMPLE_COLLECTIONS;
+  }
+}
+
+const MENUS = [
+  { id: "review", label: "Xem lại thẻ" },
+  { id: "search", label: "Tìm kiếm" },
+  { id: "create", label: "Tạo thẻ" },
+  { id: "stats", label: "Thống kê" },
+  { id: "manage", label: "Bộ sưu tập" },
+];
+
+// ========== Main App ==========
+function App() {
+  const [collections, setCollections] = React.useState(loadFromStorage());
+  const [curColId, setCurColId] = React.useState(collections[0]?.id || "");
+  const [menu, setMenu] = React.useState("review");
+
+  React.useEffect(() => saveToStorage(collections), [collections]);
+
+  const colIdx = collections.findIndex(c => c.id === curColId);
+  const curCol = collections[colIdx] || collections[0];
+
+  function switchCol(id) {
+    setCurColId(id);
+    setMenu("review");
+  }
+  function updateCurCol(newCol) {
+    const updated = collections.slice();
+    updated[colIdx] = newCol;
+    setCollections(updated);
+  }
+  function updateCollections(newCols) {
+    setCollections(newCols);
+    if (!newCols.some(c => c.id === curColId)) setCurColId(newCols[0]?.id || "");
+  }
+
+  return (
+    <div style={{
+      fontFamily: "system-ui,sans-serif",
+      background: "#f6f7fb",
+      minHeight: "100vh",
+      display: "flex"
+    }}>
+      {/* Sidebar */}
+      <div style={{
+        width: 220,
+        background: "#232946",
+        color: "white",
+        display: "flex",
+        flexDirection: "column",
+        padding: 0,
+        boxShadow: "2px 0 10px #23294622",
+        minHeight: "100vh",
+        borderRadius: "0 28px 28px 0"
+      }}>
+        <div style={{
+          padding: "30px 0 16px 0",
+          textAlign: "center",
+          fontWeight: 700,
+          fontSize: 23,
+          letterSpacing: "1px"
+        }}>
+          <span style={{
+            color: "#eebbc3",
+            fontWeight: 800,
+            letterSpacing: 2,
+            fontFamily: "monospace"
+          }}>FLASHCARDS</span>
+        </div>
+        <div style={{
+          padding: "0 20px 10px 20px",
+          marginBottom: 8,
+        }}>
+          <label style={{
+            fontWeight: 600,
+            marginBottom: 4,
+            display: "block",
+            fontSize: 13,
+            color: "#eebbc3",
+            letterSpacing: 0.5,
+          }}>Bộ sưu tập:</label>
+          <select
+            value={curCol?.id}
+            style={{
+              width: "100%",
+              padding: "7px 8px",
+              borderRadius: 8,
+              border: "none",
+              fontSize: 16,
+              outline: "none"
+            }}
+            onChange={e => switchCol(e.target.value)}
+          >
+            {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        {MENUS.map(m => (
+          <button key={m.id}
+            style={{
+              background: menu === m.id ? "#eebbc3" : "transparent",
+              color: menu === m.id ? "#232946" : "white",
+              fontWeight: 600,
+              border: "none",
+              fontSize: 18,
+              borderRadius: 12,
+              margin: "3px 20px",
+              padding: "12px 0",
+              cursor: "pointer",
+              transition: "all 0.18s"
+            }}
+            onClick={() => setMenu(m.id)}
+          >
+            {m.label}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div style={{
+          padding: "0 14px 28px 14px",
+          fontSize: 13,
+          color: "#9aa3bc",
+          textAlign: "center",
+        }}>
+          Made by ChatGPT for Hoàng Nam
+        </div>
+      </div>
+      {/* Main content */}
+      <div style={{
+        flex: 1,
+        padding: "32px 0",
+        maxWidth: 850,
+        margin: "0 auto",
+        minHeight: "100vh"
+      }}>
+        <div style={{ minHeight: 600 }}>
+          {menu === "review" &&
+            <ReviewView col={curCol} updateCol={updateCurCol} />}
+          {menu === "search" &&
+            <SearchView col={curCol} />}
+          {menu === "create" &&
+            <CreateView col={curCol} updateCol={updateCurCol} />}
+          {menu === "stats" &&
+            <StatsView col={curCol} />}
+          {menu === "manage" &&
+            <ManageCollections collections={collections} updateCollections={updateCollections} curColId={curColId} setCurColId={setCurColId} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Review View ==========
+function ReviewView({ col, updateCol }) {
+  const [deck, setDeck] = React.useState(() => col.cards.map((c, idx) => idx));
+  const [current, setCurrent] = React.useState(null);
+  const [flipped, setFlipped] = React.useState(false);
+  const [answerRight, setAnswerRight] = React.useState(null);
+  const [showHelp, setShowHelp] = React.useState(false);
+
+  React.useEffect(() => {
+    setDeck(col.cards.map((c, idx) => idx));
+    setCurrent(null);
+    setFlipped(false);
+    setAnswerRight(null);
+  }, [col.id, col.cards.length]);
+
+  React.useEffect(() => {
+    if (deck.length === 0) {
+      setCurrent(null);
+      return;
+    }
+    if (current === null) {
+      setTimeout(() => {
+        setCurrent(deck[Math.floor(Math.random() * deck.length)]);
+        setFlipped(false);
+        setAnswerRight(null);
+      }, 50);
+    }
+  }, [deck, current]);
+
+  const stats = col.stats || {};
+  const cards = col.cards;
+
+  function nextCard() {
+    if (deck.length === 0) return;
+    let choices = deck.filter(idx => idx !== current);
+    if (choices.length === 0) choices = deck;
+    const randIdx = choices[Math.floor(Math.random() * choices.length)];
+    setCurrent(randIdx);
+    setFlipped(false);
+    setAnswerRight(null);
+  }
+  function prevCard() {
+    nextCard();
+  }
+  function markAnswer(isRight) {
+    if (current === null) return;
+    let idx = current;
+    let card = cards[idx];
+    let s = Object.assign({}, stats);
+    if (!s[card.front]) s[card.front] = { total: 0, right: 0 };
+    s[card.front].total++;
+    if (isRight) s[card.front].right++;
+    updateCol(Object.assign({}, col, { stats: s }));
+
+    setAnswerRight(isRight);
+
+    if (isRight) {
+      setTimeout(() => {
+        setDeck(deck0 => deck0.filter(i => i !== idx));
+        setCurrent(null);
+      }, 400);
+    }
+  }
+
+  React.useEffect(() => {
+    function handle(e) {
+      if (!deck.length || current === null) return;
+      if (e.code === "Space") {
+        setFlipped(f => !f);
+        setAnswerRight(null);
+      }
+      if (e.code === "ArrowRight") nextCard();
+      if (e.code === "ArrowLeft") prevCard();
+      if (e.key === "1") markAnswer(true);
+      if (e.key === "0") markAnswer(false);
+    }
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  });
+
+  if (!cards.length) return (
+    <div style={{ marginTop: 80, textAlign: "center", fontSize: 22, color: "#888" }}>
+      Chưa có thẻ ghi nhớ trong bộ này.
+    </div>
+  );
+  if (!deck.length) return (
+    <div style={{
+      marginTop: 100,
+      textAlign: "center",
+      fontSize: 26,
+      color: "#26c485",
+      fontWeight: 700
+    }}>
+      Đã luyện hết thẻ! <br />
+      <span style={{ fontSize: 17, color: "#232946", fontWeight: 400 }}>
+        (Làm mới trang hoặc chuyển bộ sưu tập để luyện lại)
+      </span>
+    </div>
+  );
+  if (current === null) return null;
+
+  const card = cards[current];
+  const cardStat = stats[card.front] || { total: 0, right: 0 };
+
+  return (
+    <div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 14, color: "#232946" }}>
+        Xem lại thẻ ({deck.length} thẻ còn lại)
+        <span
+          style={{ marginLeft: 18, color: "#eebbc3", fontSize: 18, cursor: "pointer" }}
+          title="Hướng dẫn"
+          onClick={() => setShowHelp(h => !h)}
+        >❓</span>
+      </div>
+      {showHelp &&
+        <div style={{
+          background: "#fffbe6",
+          border: "1px solid #ffe59f",
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 20,
+          fontSize: 15,
+        }}>
+          <b>Phím tắt:</b> Space (lật thẻ), ←/→ (ngẫu nhiên thẻ), 1/0 (Đúng/Sai)<br />
+          Nhấn nút "✓" hoặc "✗" để ghi lại trả lời đúng/sai. Đúng thì thẻ biến mất khỏi lượt xem.
+        </div>
+      }
+      <div style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 38,
+        flexWrap: "wrap",
+      }}>
+        {/* Flashcard */}
+        <div
+          style={{
+            perspective: 1300,
+            width: 340, height: 210,
+            cursor: "pointer",
+            position: "relative",
+            userSelect: "none",
+          }}
+          tabIndex={0}
+          onClick={() => { setFlipped(f => !f); setAnswerRight(null); }}
+        >
+          <div style={{
+            width: "100%", height: "100%",
+            borderRadius: 18,
+            boxShadow: "0 2px 20px #23294622,0 2px 40px #23294613",
+            background: flipped ? "#eebbc3" : "#fff",
+            color: flipped ? "#232946" : "#232946",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 34,
+            transition: "background 0.2s",
+            transformStyle: "preserve-3d",
+            transform: `rotateY(${flipped ? 180 : 0}deg)`,
+            transitionProperty: "background,transform",
+            transitionDuration: "0.45s,0.45s",
+            transitionTimingFunction: "cubic-bezier(0.55,0,0.55,1)",
+            position: "absolute",
+            backfaceVisibility: "hidden",
+          }}>
+            {!flipped ? card.front : ""}
+          </div>
+          <div style={{
+            width: "100%", height: "100%",
+            borderRadius: 18,
+            background: "#eebbc3",
+            color: "#232946",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 32,
+            position: "absolute",
+            top: 0, left: 0,
+            transform: `rotateY(${flipped ? 0 : 180}deg)`,
+            transition: "transform 0.45s cubic-bezier(0.55,0,0.55,1)",
+            backfaceVisibility: "hidden",
+            boxShadow: "0 2px 20px #23294622,0 2px 40px #23294613",
+          }}>
+            {flipped ? card.back : ""}
+          </div>
+        </div>
+        {/* Answer controls */}
+        <div style={{
+          minWidth: 150,
+          marginTop: 14,
+        }}>
+          <div style={{ marginBottom: 17, fontSize: 16, color: "#232946" }}>
+            Bạn nhớ đúng không?
+          </div>
+          <div style={{ display: "flex", gap: 14 }}>
+            <button
+              style={{
+                fontSize: 26,
+                padding: "7px 24px",
+                borderRadius: 12,
+                border: "none",
+                background: answerRight === true ? "#26c485" : "#e3e3e3",
+                color: "#232946",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: answerRight === true ? "0 1px 8px #26c48544" : "",
+                transition: "all 0.15s"
+              }}
+              onClick={e => { e.stopPropagation(); markAnswer(true); }}
+            >✓</button>
+            <button
+              style={{
+                fontSize: 26,
+                padding: "7px 24px",
+                borderRadius: 12,
+                border: "none",
+                background: answerRight === false ? "#ff6767" : "#e3e3e3",
+                color: "#232946",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: answerRight === false ? "0 1px 8px #ff676777" : "",
+                transition: "all 0.15s"
+              }}
+              onClick={e => { e.stopPropagation(); markAnswer(false); }}
+            >✗</button>
+          </div>
+          <div style={{ margin: "18px 0 5px 0", color: "#858ba6", fontSize: 13 }}>
+            Đã xem: {cardStat.total || 0} <br />
+            Đúng: {cardStat.right || 0}
+          </div>
+          <div style={{ margin: "28px 0 0 0", display: "flex", gap: 10 }}>
+            <button
+              style={{
+                padding: "7px 17px",
+                fontSize: 17,
+                borderRadius: 10,
+                background: "#ececec",
+                border: "none",
+                cursor: "pointer"
+              }}
+              onClick={prevCard}
+              title="Ngẫu nhiên thẻ khác (←)"
+            >←</button>
+            <button
+              style={{
+                padding: "7px 17px",
+                fontSize: 17,
+                borderRadius: 10,
+                background: "#ececec",
+                border: "none",
+                cursor: "pointer"
+              }}
+              onClick={nextCard}
+              title="Ngẫu nhiên thẻ khác (→)"
+            >→</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+// ========== Search View ==========
+function SearchView({ col }) {
+  const [q, setQ] = React.useState("");
+  const [results, setResults] = React.useState([]);
+
+  React.useEffect(() => {
+    if (!q.trim()) setResults([]);
+    else {
+      const term = q.toLowerCase();
+      setResults(
+        col.cards.filter(c =>
+          c.front.toLowerCase().includes(term) ||
+          c.back.toLowerCase().includes(term)
+        )
+      );
+    }
+  }, [q, col]);
+
+  return (
+    <div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 18, color: "#232946" }}>
+        Tìm kiếm thẻ ghi nhớ
+      </div>
+      <input
+        type="text"
+        value={q}
+        placeholder="Nhập từ khoá..."
+        style={{
+          width: 360,
+          padding: "12px 14px",
+          borderRadius: 10,
+          border: "1.5px solid #eebbc3",
+          fontSize: 18,
+          marginBottom: 22,
+          outline: "none",
+          boxSizing: "border-box"
+        }}
+        onChange={e => setQ(e.target.value)}
+        autoFocus
+      />
+      {q && (
+        <div style={{ fontSize: 15, marginBottom: 14, color: "#858ba6" }}>
+          Tìm thấy {results.length} thẻ
+        </div>
+      )}
+      <div>
+        {results.map((c, i) => (
+          <div key={i} style={{
+            background: "#fff",
+            borderRadius: 11,
+            boxShadow: "0 1px 5px #2329460c",
+            padding: "14px 24px",
+            fontSize: 19,
+            marginBottom: 13,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 30,
+          }}>
+            <span style={{ color: "#232946" }}>{c.front}</span>
+            <span style={{ color: "#eebbc3", fontWeight: 600 }}>{c.back}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ========== Create View ==========
+function CreateView({ col, updateCol }) {
+  const [front, setFront] = React.useState("");
+  const [back, setBack] = React.useState("");
+  const [message, setMessage] = React.useState("");
+  const fileInput = React.useRef();
+
+  function addCard() {
+    if (!front.trim() || !back.trim()) {
+      setMessage("Hãy nhập đủ cả hai mặt thẻ.");
+      return;
+    }
+    if (col.cards.some(c => c.front.toLowerCase() === front.toLowerCase())) {
+      setMessage("Đã có thẻ với mặt trước này.");
+      return;
+    }
+    updateCol({ ...col, cards: [...col.cards, { front, back }] });
+    setFront(""); setBack(""); setMessage("Đã thêm thẻ!");
+    setTimeout(() => setMessage(""), 1000);
+  }
+
+  function delCard(idx) {
+    if (!window.confirm("Bạn có chắc muốn xoá thẻ này không?")) return;
+    const cards = col.cards.slice();
+    cards.splice(idx, 1);
+    updateCol({ ...col, cards });
+  }
+
+  function handleImportCSV(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const newCards = parseCSV(ev.target.result);
+      updateCol({ ...col, cards: [...col.cards, ...newCards] });
+      setMessage(`Đã nhập ${newCards.length} thẻ từ file CSV!`);
+    };
+    reader.readAsText(file);
+  }
+  function handleResetCSV(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!window.confirm("Thao tác này sẽ thay toàn bộ thẻ hiện tại. Tiếp tục?")) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const newCards = parseCSV(ev.target.result);
+      updateCol({ ...col, cards: newCards, stats: {} });
+      setMessage(`Đã reset bộ thẻ với ${newCards.length} thẻ từ CSV.`);
+    };
+    reader.readAsText(file);
+  }
+  function exportCSV() {
+  const bom = "\uFEFF"; // BOM cho UTF-8
+  const blob = new Blob([bom + toCSV(col.cards)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${col.name}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+  return (
+    <div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 18, color: "#232946" }}>
+        Thêm / Quản lý thẻ ghi nhớ
+      </div>
+      <div style={{
+        display: "flex",
+        gap: 40,
+        flexWrap: "wrap"
+      }}>
+        <div>
+          <div style={{ fontSize: 15, marginBottom: 3 }}>Mặt trước (ví dụ: apple)</div>
+          <input
+            value={front}
+            onChange={e => setFront(e.target.value)}
+            style={{
+              width: 220, fontSize: 18, padding: 8, borderRadius: 9, border: "1.5px solid #eebbc3",
+              marginBottom: 12
+            }}
+            placeholder="Từ/cụm từ"
+          />
+          <div style={{ fontSize: 15, marginBottom: 3 }}>Mặt sau (ví dụ: quả táo)</div>
+          <input
+            value={back}
+            onChange={e => setBack(e.target.value)}
+            style={{
+              width: 220, fontSize: 18, padding: 8, borderRadius: 9, border: "1.5px solid #eebbc3"
+            }}
+            placeholder="Nghĩa/bản dịch"
+          />
+          <div>
+            <button
+              style={{
+                marginTop: 14,
+                padding: "9px 30px",
+                background: "#eebbc3",
+                color: "#232946",
+                border: "none",
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: 17,
+                cursor: "pointer",
+                marginRight: 8,
+              }}
+              onClick={addCard}
+            >Thêm thẻ</button>
+            <span style={{ color: "#2ca5a9", fontSize: 15, marginLeft: 6 }}>{message}</span>
+          </div>
+          <div style={{ marginTop: 18 }}>
+            <label style={{
+              fontSize: 14, fontWeight: 500, marginRight: 8
+            }}>
+              Thêm thẻ từ file CSV:
+              <input
+                type="file"
+                accept=".csv"
+                style={{ marginLeft: 8 }}
+                ref={fileInput}
+                onChange={handleImportCSV}
+              />
+            </label>
+          </div>
+          <div style={{ marginTop: 11 }}>
+            <label style={{
+              fontSize: 14, fontWeight: 500, marginRight: 8
+            }}>
+              Reset toàn bộ thẻ bằng file CSV:
+              <input
+                type="file"
+                accept=".csv"
+                style={{ marginLeft: 8 }}
+                onChange={handleResetCSV}
+              />
+            </label>
+          </div>
+          <div style={{ marginTop: 13 }}>
+            <button
+              style={{
+                padding: "7px 22px",
+                background: "#d6e0f0",
+                color: "#232946",
+                border: "none",
+                borderRadius: 8,
+                fontWeight: 600,
+                fontSize: 15,
+                cursor: "pointer",
+              }}
+              onClick={exportCSV}
+            >Export ra file CSV</button>
+          </div>
+        </div>
+        <div style={{
+          background: "#fff",
+          padding: "18px 20px",
+          borderRadius: 13,
+          minWidth: 300,
+          boxShadow: "0 1px 8px #23294611",
+          flex: 1,
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 12 }}>
+            Danh sách thẻ ({col.cards.length})
+          </div>
+          <div style={{ maxHeight: 270, overflowY: "auto" }}>
+            {col.cards.map((c, i) => (
+              <div key={i} style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                background: "#f6f7fb",
+                borderRadius: 8,
+                marginBottom: 7,
+                padding: "7px 13px"
+              }}>
+                <span style={{ fontWeight: 600 }}>{c.front}</span>
+                <span style={{ color: "#eebbc3" }}>{c.back}</span>
+                <button
+                  style={{
+                    background: "#ff6767",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "3px 10px",
+                    fontSize: 15,
+                    cursor: "pointer"
+                  }}
+                  onClick={() => delCard(i)}
+                  title="Xoá thẻ"
+                >Xoá</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Stats View ==========
+function StatsView({ col }) {
+  const stats = col.stats || {};
+  const total = col.cards.length;
+  let reviewed = 0, right = 0;
+  col.cards.forEach(card => {
+    if (stats[card.front]) {
+      reviewed += stats[card.front].total;
+      right += stats[card.front].right;
+    }
+  });
+  const percent = reviewed ? Math.round(right * 100 / reviewed) : 0;
+
+  // Chart: Show reviewed/total for each card
+  const chartH = 120, chartW = 400;
+  const barW = 18, gap = 8;
+
+  return (
+    <div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 18, color: "#232946" }}>
+        Thống kê học tập
+      </div>
+      <div style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 50
+      }}>
+        <div>
+          <div style={{
+            fontSize: 18,
+            marginBottom: 6,
+            color: "#eebbc3",
+            fontWeight: 700
+          }}>Tổng số thẻ: <span style={{ color: "#232946" }}>{total}</span></div>
+          <div style={{
+            fontSize: 17,
+            marginBottom: 4
+          }}>Lượt đã xem: <b>{reviewed}</b></div>
+          <div style={{
+            fontSize: 17,
+            marginBottom: 4
+          }}>Số lần đúng: <b>{right}</b></div>
+          <div style={{
+            fontSize: 17,
+            marginBottom: 12
+          }}>Tỷ lệ đúng: <span style={{ color: "#26c485", fontWeight: 700 }}>{percent}%</span></div>
+        </div>
+        {/* Bar chart */}
+        <div>
+          <div style={{ marginBottom: 6, fontSize: 16, fontWeight: 500 }}>Thống kê từng thẻ</div>
+          <svg width={chartW} height={chartH} style={{ background: "#fff", borderRadius: 10, boxShadow: "0 1px 10px #2329460a" }}>
+            {col.cards.map((card, i) => {
+              const s = stats[card.front] || { total: 0, right: 0 };
+              const barH = (s.total / Math.max(1, reviewed)) * (chartH - 26);
+              const rightH = (s.right / Math.max(1, reviewed)) * (chartH - 26);
+              return (
+                <g key={i}>
+                  {/* Total bar */}
+                  <rect x={15 + i * (barW + gap)} y={chartH - barH - 20}
+                    width={barW} height={barH}
+                    fill="#eebbc3" rx={4} />
+                  {/* Right bar */}
+                  <rect x={15 + i * (barW + gap)} y={chartH - rightH - 20}
+                    width={barW} height={rightH}
+                    fill="#26c485" rx={4} />
+                  {/* Label */}
+                  <text x={15 + i * (barW + gap) + barW / 2} y={chartH - 5}
+                    fontSize="10" textAnchor="middle" fill="#232946">
+                    {card.front.length > 8 ? card.front.slice(0, 8) + "…" : card.front}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== Manage Collections ==========
+function ManageCollections({ collections, updateCollections, curColId, setCurColId }) {
+  const [name, setName] = React.useState("");
+  const [msg, setMsg] = React.useState("");
+  function addCol() {
+    if (!name.trim()) { setMsg("Nhập tên bộ sưu tập."); return; }
+    if (collections.some(c => c.name === name)) { setMsg("Đã có tên này."); return; }
+    let id = name.toLowerCase().replace(/\s+/g, "-") + Math.floor(Math.random() * 10000);
+    updateCollections([...collections, { id, name, cards: [], stats: {} }]);
+    setName(""); setMsg("Đã tạo!");
+    setCurColId(id);
+    setTimeout(() => setMsg(""), 1000);
+  }
+  function delCol(id) {
+    if (collections.length === 1) { setMsg("Phải có ít nhất 1 bộ sưu tập."); return; }
+    if (!window.confirm("Bạn chắc chắn xoá bộ này?")) return;
+    let updated = collections.filter(c => c.id !== id);
+    updateCollections(updated);
+    setCurColId(updated[0].id);
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 18, color: "#232946" }}>
+        Quản lý bộ sưu tập
+      </div>
+      <div style={{ marginBottom: 23 }}>
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          style={{
+            padding: "9px 12px",
+            borderRadius: 9,
+            border: "1.5px solid #eebbc3",
+            fontSize: 17,
+            marginRight: 10,
+            width: 230
+          }}
+          placeholder="Tên bộ sưu tập mới"
+        />
+        <button
+          style={{
+            padding: "9px 22px",
+            background: "#eebbc3",
+            color: "#232946",
+            border: "none",
+            borderRadius: 9,
+            fontWeight: 700,
+            fontSize: 16,
+            cursor: "pointer"
+          }}
+          onClick={addCol}
+        >Thêm bộ sưu tập</button>
+        <span style={{ marginLeft: 11, color: "#2ca5a9", fontSize: 15 }}>{msg}</span>
+      </div>
+      <div style={{
+        background: "#fff",
+        borderRadius: 12,
+        boxShadow: "0 1px 8px #23294611",
+        padding: "17px 28px",
+        maxWidth: 400
+      }}>
+        <div style={{
+          fontWeight: 700,
+          fontSize: 17,
+          marginBottom: 8,
+          color: "#232946"
+        }}>Danh sách bộ sưu tập ({collections.length})</div>
+        {collections.map(c => (
+          <div key={c.id} style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "7px 0",
+            borderBottom: "1px solid #f0e9e6",
+            gap: 10
+          }}>
+            <span style={{
+              fontWeight: c.id === curColId ? 700 : 500,
+              color: c.id === curColId ? "#eebbc3" : "#232946"
+            }}>
+              {c.name}
+            </span>
+            <button
+              style={{
+                background: "#ff6767",
+                color: "white",
+                border: "none",
+                borderRadius: 8,
+                padding: "3px 10px",
+                fontSize: 14,
+                cursor: "pointer"
+              }}
+              onClick={() => delCol(c.id)}
+              title="Xoá bộ sưu tập"
+              disabled={collections.length === 1}
+            >Xoá</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
